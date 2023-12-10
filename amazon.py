@@ -112,14 +112,17 @@ def getItem(driver, asin):
         )
 
         price = element.text
+        title = driver.find_element(By.XPATH, "//*[@id='title']").text
         
         if '\n' in price:
             price = price.replace("\n",".")
 
-    except:
+    except Exception as e:
         price = None
+        title = None
+        print("LOI", e)
 
-    item = {"asin": asin, "price": price}
+    item = {"asin": asin, "price": price, "title": title}
     return item
 
 
@@ -144,7 +147,11 @@ def getAsins(driver, url):
     asins = set()
     for elem in elems:
         link = elem.get_attribute("href")
-        candidates = re.findall(r"/dp/(B0\w*)/", link)
+        candidates = re.findall(r"/dp/([A-Z0-9]{10})/", link)
+        for c in candidates:
+            asins.add(c)
+
+        candidates = re.findall(r"%2Fdp%2F([A-Z0-9]{10})", link)
         for c in candidates:
             asins.add(c)
 
@@ -152,37 +159,65 @@ def getAsins(driver, url):
     return asins
 
 
-def saveFile(items, file_name):
-    print("Saving result to file ", file_name)
-
+def saveFile(items, writer, sheetName):
+    print("Saving result to sheet ", sheetName)
+    
     df = pd.DataFrame(items)
-    df.to_csv(file_name, index=False)
+    df.to_excel(writer, sheet_name=sheetName, index=False)
+
+
+def getListRootAsins(input_file='Map Data.xlsx', sheetName='Sheet1', colName='Asin Advertised', partition=1, n=200):
+    df = pd.ExcelFile(input_file).parse(sheetName) #you could add index_col=0 if there's an index
+    res = df[colName].tolist()
+
+    start = partition * n
+    end = (partition + 1) * n
+
+    if start > len(res):
+        return []
+    
+    if end > len(res):
+        return res[start:]
+    
+    return res[start:end]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-ra", "--rootasin", help="Asin of the product", required=True)
-    parser.add_argument("-b", "--browser", help="Open Chrome browser to view process", action='store_const', const=True, default=False)
-    parser.add_argument("-p", "--path", help="CSV ouput file folder", default="output/")
+    parser.add_argument("-i", "--input", help="input file name", default='Map Data.xlsx')
+    parser.add_argument("-c", "--column", help="column name", default='Asin Advertised')
+    parser.add_argument("-s", "--sheet", help="sheet name", default='Sheet1')
+    parser.add_argument("-o", "--output", help="output path (not filename)", default="output/")
+    parser.add_argument("-n", "--num", help="number of asins per process", default=200, type=int)
+    parser.add_argument("-p", "--partition", help="partition of input file (0->n)", required=True, type=int)
 
     args = parser.parse_args()
 
-    rootAsin = args.rootasin
+    rootAsins = getListRootAsins(args.input, args.sheet, args.column, int(args.partition), int(args.num))
+    if len(rootAsins) == 0:
+        print("empty asins")
+        exit
 
-    url = "https://www.amazon.com/dp/" + rootAsin
+    path = createFolder(args.output)
+    driver = createDriver()
 
-    path = createFolder(args.path)
-    driver = createDriver(not args.browser)
-    
-    asins = getAsins(driver, url)
-    asins.discard(rootAsin)
+    output_file = path + args.input + "_" + str(args.partition) + ".xlsx"
+    writer = pd.ExcelWriter(output_file, engine = 'xlsxwriter')
 
-    items = []
-    for asin in asins:
-        time.sleep(random.randint(0, 200) / 100)
-        items.append(getItem(driver, asin))
+    for rootAsin in rootAsins:
+        url = "https://www.amazon.com/dp/" + rootAsin
+        asins = getAsins(driver, url)
+        asins.discard(rootAsin)
+
+        items = []
+        for asin in asins:
+            time.sleep(random.randint(0, 200) / 100)
+            items.append(getItem(driver, asin))
+
+        saveFile(items, writer, rootAsin)
+
+    writer.close()
     driver.quit()
-
-    saveFile(items, path + rootAsin + ".csv")
 
 
 

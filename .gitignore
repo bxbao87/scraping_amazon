@@ -1,2 +1,7 @@
 build/*
 output/*
+chrome-headless-shell-win64/*
+chromedriver/*
+test/*
+input/*
+dist/*
