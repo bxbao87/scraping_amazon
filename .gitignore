@@ -5,3 +5,5 @@ chromedriver/*
 test/*
 input/*
 dist/*
+tmp/*
+*.xlsx

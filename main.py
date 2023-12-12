@@ -31,6 +31,7 @@ def func(partition):
 
 if __name__ == "__main__":
     createFolder(output_folder)
+    createFolder("tmp/")
 
     for i in range(m):
         print("process ", i)

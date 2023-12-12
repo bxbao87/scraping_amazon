@@ -3,7 +3,12 @@ import os
 import regex as re
 import random
 import time 
+from datetime import date
 import pandas as pd 
+from PIL import Image
+import urllib
+import urllib.request
+from openpyxl.drawing.image import Image as OImage
 
 from selenium import webdriver 
 from selenium.webdriver import Chrome 
@@ -91,7 +96,7 @@ def solveCaptcha():
     button.click()
 
 
-def getItem(driver, asin):
+def getItem(driver, asin, showImg=False):
     print("Get item price", asin)
 
     url = "https://www.amazon.com/dp/" + asin
@@ -117,12 +122,19 @@ def getItem(driver, asin):
         if '\n' in price:
             price = price.replace("\n",".")
 
+        if showImg:
+            img = driver.find_element(By.XPATH, '//*[@id="landingImage"]').get_attribute("src")
+
     except Exception as e:
         price = None
         title = None
+        img = None
         print("LOI", e)
 
+
     item = {"asin": asin, "price": price, "title": title}
+    if showImg:
+        item["img"] = img
     return item
 
 
@@ -160,11 +172,29 @@ def getAsins(driver, url):
 
 
 def saveFile(items, writer, sheetName):
-    print("Saving result to sheet ", sheetName)
-    
+    print("Saving result to sheet")
+    url = items[0].pop('img', None)
+    img_name = getImg(url)
+
     df = pd.DataFrame(items)
     df.to_excel(writer, sheet_name=sheetName, index=False)
 
+    # Get the xlsxwriter workbook and worksheet objects.
+    worksheet = writer.sheets[sheetName]
+    worksheet.add_image(OImage(img_name), "F0")
+
+    os.remove(img_name)
+
+def getImg(url):
+    img_name = os.path.join("tmp", str(time.time()) + '.jpg')
+    urllib.request.urlretrieve(url, img_name) # Save image
+
+    # Convert image
+    img = Image.open(img_name)
+    img.thumbnail((128, 128))
+    img.save(img_name)
+
+    return img_name
 
 def getListRootAsins(input_file='Map Data.xlsx', sheetName='Sheet1', colName='Asin Advertised', partition=1, n=200):
     df = pd.ExcelFile(input_file).parse(sheetName) #you could add index_col=0 if there's an index
@@ -201,8 +231,7 @@ if __name__ == "__main__":
     path = createFolder(args.output)
     driver = createDriver()
 
-    output_file = path + args.input + "_" + str(args.partition) + ".xlsx"
-    writer = pd.ExcelWriter(output_file, engine = 'xlsxwriter')
+    sheet_name = str(date.today())
 
     for rootAsin in rootAsins:
         url = "https://www.amazon.com/dp/" + rootAsin
@@ -210,13 +239,21 @@ if __name__ == "__main__":
         asins.discard(rootAsin)
 
         items = []
+        items.append(getItem(driver, rootAsin, True))
         for asin in asins:
             time.sleep(random.randint(0, 200) / 100)
             items.append(getItem(driver, asin))
 
-        saveFile(items, writer, rootAsin)
+        output_filename = path + rootAsin + ".xlsx"
+        
+        if not os.path.exists(output_filename):
+            writer = pd.ExcelWriter(output_filename, engine="openpyxl")
+        else:
+            writer = pd.ExcelWriter(output_filename, engine="openpyxl",mode='a',if_sheet_exists="replace")
+            
+        saveFile(items, writer, sheet_name)
+        writer.close()
 
-    writer.close()
     driver.quit()
 
 
